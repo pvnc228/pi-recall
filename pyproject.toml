@@ -1,0 +1,6 @@
+[project]
+name = "pi-recall-decision-worker"
+version = "0.0.0"
+description = "Loopback Julia-1 decision worker for Pi Recall"
+requires-python = ">=3.11"
+dependencies = []

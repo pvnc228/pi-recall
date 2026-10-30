@@ -1,0 +1,30 @@
+{
+  "name": "pi-recall",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Project-scoped memory extension for Pi",
+  "keywords": ["pi-package", "pi", "memory"],
+  "author": "pvnc228",
+  "homepage": "https://github.com/pvnc228/pi-recall#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/pvnc228/pi-recall.git" },
+  "bugs": { "url": "https://github.com/pvnc228/pi-recall/issues" },
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=22.19.0" },
+  "files": ["dist/src", "python/worker.py", "pyproject.toml", "README.md", "LICENSE"],
+  "pi": { "extensions": ["./dist/src/extension.js"] },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "tsc",
+    "test": "npm run build && node --test dist/test/core.test.js dist/test/decision.test.js dist/test/extension.test.js",
+    "test:python": "python -m unittest discover -s python/tests -v",
+    "prepack": "npm run build"
+  },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": ">=1.4.0 <2" },
+  "overrides": { "undici": "8.12.2" },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@types/node": "22.20.5",
+    "typescript": "7.0.2"
+  }
+}

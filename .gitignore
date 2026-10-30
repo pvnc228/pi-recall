@@ -1,0 +1,15 @@
+node_modules/
+docs-internal/
+dist/
+*.tgz
+*.sqlite*
+*.db*
+.venv/
+__pycache__/
+.ruff_cache/
+*.pyc
+models/
+coverage/
+.env
+.env.*
+!.env.example
