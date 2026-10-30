@@ -40,15 +40,13 @@ test("extension loads on mock Pi 1.4 host, captures opt-in input, exposes truthf
     const command = commands.get("recall"); assert.ok(command);
     await command.handler("status", ctx);
     assert.match(notices.at(-1)!, /"pendingSources": 3/);
-    assert.match(notices.at(-1)!, /no files protected/);
+    assert.match(notices.at(-1)!, /"automaticRecall": "not implemented"/);
     assert.match(notices.at(-1)!, /"decisionMode": "managed"/);
     await command.handler("decide candidate", ctx);
     assert.match(notices.at(-1)!, /Set decision.modelDir/);
     assert.doesNotMatch(notices.at(-1)!, /attacker/);
     await command.handler("add Test memory", ctx);
     assert.match(notices.at(-1)!, /Saved fact/);
-    await command.handler("injections", ctx);
-    assert.match(notices.at(-1)!, /No context insertions/);
     assert.equal(handlers.has("tool_call"), false);
     assert.equal(handlers.has("before_agent_start"), false);
     await handlers.get("session_before_compact")?.({}, ctx);

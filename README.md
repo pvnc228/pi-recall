@@ -87,7 +87,9 @@ creates a separate store.
 
 Capture has no secret redaction. Deleting a record hides it from active use and
 blocks extraction from its source events. Those events stay in the journal, so
-deletion is not physical erasure. A newer human message can create the claim again.
+deletion is not physical erasure. A record based on new sources can state the same
+claim again. A fact needs at least one original user message among its sources;
+anything else can only support a hypothesis.
 
 ## Decision model
 

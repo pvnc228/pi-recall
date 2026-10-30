@@ -46,12 +46,9 @@ export function parseConfig(input: unknown = {}): Config {
 }
 
 export const CAPABILITIES = Object.freeze({
-  stage: "foundation",
+  stage: "scaffold",
   journalAndManualMemory: "implemented; capture opt-in",
   automaticExtraction: "not implemented",
   automaticRecall: "not implemented",
-  lateRecallUI: "not implemented",
   decisionTransport: "explicit diagnostic calls only",
-  recoveryGuard: "disabled; no files protected",
-  shellRecovery: "unsupported",
 });

@@ -48,7 +48,7 @@ export default function recallExtension(pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     try {
       open(ctx);
-      ctx.ui.setStatus("pi-recall", "Recall: foundation | auto/recovery OFF");
+      ctx.ui.setStatus("pi-recall", "Recall: scaffold | auto OFF");
     } catch (error) { report(ctx, error); }
   });
   pi.on("input", (event, ctx) => {
@@ -66,7 +66,7 @@ export default function recallExtension(pi: ExtensionAPI): void {
   pi.on("session_shutdown", () => { release(); });
 
   pi.registerCommand("recall", {
-    description: "Project-memory foundation: status, configure, list, add, edit, delete, audit, injections, decide",
+    description: "Project memory: status, configure, list, add, edit, delete, audit, decide",
     handler: async (args, ctx) => {
       try {
         const db = open(ctx);
@@ -95,7 +95,7 @@ export default function recallExtension(pi: ExtensionAPI): void {
           const kind = await ctx.ui.select("Memory type", ["fact", "hypothesis"]);
           if (kind !== "fact" && kind !== "hypothesis") return;
           const source = db.appendSource(ctx.sessionManager.getSessionId(), "user", "human", rest);
-          const memory = db.add(`manual:${source.id}`, kind, rest, [source.id]);
+          const memory = db.add(kind, rest, [source.id]);
           ctx.ui.notify(`Saved ${memory.kind}: ${memory.text}`, "info");
         } else if (command === "edit" || command === "delete") {
           const memory = await chooseMemory(db, ctx);
@@ -107,8 +107,6 @@ export default function recallExtension(pi: ExtensionAPI): void {
           }
         } else if (command === "audit") {
           await ctx.ui.editor("Memory audit (read-only view)", JSON.stringify(db.events(), null, 2));
-        } else if (command === "injections") {
-          ctx.ui.notify("No context insertions: automatic recall is not implemented in this foundation.", "info");
         } else if (command === "decide") {
           if (!rest) throw new Error("Usage: /recall decide <task and candidate memory>; diagnostic only, no context insertion");
           const d = config.decision;
@@ -122,7 +120,7 @@ export default function recallExtension(pi: ExtensionAPI): void {
           }
           const answer = await decide(endpoint, model, rest, token, config.decisionTimeoutMs);
           ctx.ui.notify(`Decision diagnostic (not applied): ${JSON.stringify(answer)}`, "info");
-        } else throw new Error("Commands: status, configure, list, add <text>, edit, delete, audit, injections, decide <state>");
+        } else throw new Error("Commands: status, configure, list, add <text>, edit, delete, audit, decide <state>");
       } catch (error) { report(ctx, error); }
     },
   });

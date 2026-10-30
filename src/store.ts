@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 export type Source = { seq: number; id: string; session: string; role: "user" | "assistant"; origin: "human" | "agent" | "replay" | "unattested"; text: string };
-export type Memory = { id: string; claimKey: string; kind: "fact" | "hypothesis"; text: string; sourceIds: string[]; revision: number };
+export type Memory = { id: string; kind: "fact" | "hypothesis"; text: string; sourceIds: string[]; revision: number };
 
 export function projectIdentity(root: string): { root: string; id: string } {
   const canonical = realpathSync(resolve(root));
@@ -27,9 +27,8 @@ export class MemoryStore {
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sources (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, session TEXT NOT NULL, role TEXT NOT NULL, origin TEXT NOT NULL, text TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS memories (id TEXT PRIMARY KEY, claim_key TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, source_ids TEXT NOT NULL, revision INTEGER NOT NULL, active INTEGER NOT NULL);
-      CREATE UNIQUE INDEX IF NOT EXISTS active_claim ON memories(claim_key) WHERE active=1;
-      CREATE TABLE IF NOT EXISTS tombstones (id TEXT PRIMARY KEY, memory_id TEXT NOT NULL, claim_key TEXT NOT NULL, source_ids TEXT NOT NULL, watermark INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS memories (id TEXT PRIMARY KEY, kind TEXT NOT NULL, text TEXT NOT NULL, source_ids TEXT NOT NULL, revision INTEGER NOT NULL, active INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS suppressed_sources (source_id TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS audit (seq INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, payload TEXT NOT NULL);
       INSERT OR IGNORE INTO metadata VALUES ('cursor', '0');`);
     this.db.prepare("INSERT OR IGNORE INTO metadata VALUES ('project', ?)").run(projectId);
@@ -64,7 +63,7 @@ export class MemoryStore {
   }
   private watermark(): number { return Number((this.db.prepare("SELECT COALESCE(MAX(seq),0) AS seq FROM sources").get() as { seq: number }).seq); }
   private decode(row: Record<string, unknown>): Memory {
-    return { id: String(row.id), claimKey: String(row.claim_key), kind: row.kind as Memory["kind"], text: String(row.text), sourceIds: JSON.parse(String(row.source_ids)) as string[], revision: Number(row.revision) };
+    return { id: String(row.id), kind: row.kind as Memory["kind"], text: String(row.text), sourceIds: JSON.parse(String(row.source_ids)) as string[], revision: Number(row.revision) };
   }
   list(): Memory[] { return this.db.prepare("SELECT * FROM memories WHERE active=1 ORDER BY rowid").all().map((r) => this.decode(r)); }
   get(id: string): Memory {
@@ -72,8 +71,8 @@ export class MemoryStore {
     if (!row) throw new Error("Active memory not found");
     return this.decode(row);
   }
-  add(claimKey: string, kind: Memory["kind"], content: string, sourceIds: string[]): Memory {
-    nonempty(claimKey, "claimKey", 256); nonempty(content, "memory");
+  add(kind: Memory["kind"], content: string, sourceIds: string[]): Memory {
+    nonempty(content, "memory");
     if (!["fact", "hypothesis"].includes(kind)) throw new Error("Invalid memory kind");
     if (!sourceIds.length || sourceIds.length > 100 || new Set(sourceIds).size !== sourceIds.length) throw new Error("Exact, unique source IDs are required");
     return this.transaction(() => {
@@ -82,32 +81,36 @@ export class MemoryStore {
         if (!source) throw new Error("Unknown evidence source");
         return source;
       });
-      const tombstones = this.db.prepare("SELECT * FROM tombstones").all();
-      const related = tombstones.filter((t) => t.claim_key === claimKey || (JSON.parse(String(t.source_ids)) as string[]).some((id) => sourceIds.includes(id)));
-      for (const tombstone of related) {
-        if (!evidence.some((s) => s.role === "user" && s.origin === "human" && s.seq > Number(tombstone.watermark))) throw new Error("Deleted evidence is suppressed; new original user evidence is required");
-      }
-      const memory: Memory = { id: randomUUID(), claimKey, kind, text: content, sourceIds, revision: 1 };
-      this.db.prepare("INSERT INTO memories VALUES (?,?,?,?,?,?,1)").run(memory.id, claimKey, kind, content, JSON.stringify(sourceIds), 1);
-      this.audit("memory_added", { ...memory, supersedesTombstoneIds: related.map((t) => t.id) });
+      const suppressed = this.db.prepare("SELECT 1 FROM suppressed_sources WHERE source_id=?");
+      if (sourceIds.some((id) => suppressed.get(id))) throw new Error("Deleted evidence is suppressed");
+      if (kind === "fact" && !evidence.some((s) => s.role === "user" && s.origin === "human")) throw new Error("A fact requires original user evidence");
+      const memory: Memory = { id: randomUUID(), kind, text: content, sourceIds, revision: 1 };
+      this.db.prepare("INSERT INTO memories VALUES (?,?,?,?,?,1)").run(memory.id, kind, content, JSON.stringify(sourceIds), 1);
+      this.audit("memory_added", memory);
       return memory;
     });
   }
-  private deactivate(memory: Memory): void {
-    this.db.prepare("UPDATE memories SET active=0 WHERE id=?").run(memory.id);
-    this.db.prepare("INSERT INTO tombstones VALUES (?,?,?,?,?)").run(randomUUID(), memory.id, memory.claimKey, JSON.stringify(memory.sourceIds), this.watermark());
-    this.audit("memory_deleted", memory);
+  private suppress(memory: Memory): void {
+    const insert = this.db.prepare("INSERT OR IGNORE INTO suppressed_sources VALUES (?)");
+    for (const id of memory.sourceIds) insert.run(id);
   }
-  remove(id: string): void { this.transaction(() => this.deactivate(this.get(id))); }
+  remove(id: string): void {
+    this.transaction(() => {
+      const memory = this.get(id);
+      this.db.prepare("UPDATE memories SET active=0 WHERE id=?").run(id);
+      this.suppress(memory);
+      this.audit("memory_deleted", memory);
+    });
+  }
   edit(id: string, text: string, session: string): Memory {
     nonempty(text, "memory");
     return this.transaction(() => {
       const prior = this.get(id);
-      this.deactivate(prior);
+      this.suppress(prior);
       const source = this.appendSource(session, "user", "human", text);
       const updated: Memory = { ...prior, text, sourceIds: [source.id], revision: prior.revision + 1 };
-      this.db.prepare("UPDATE memories SET text=?,source_ids=?,revision=?,active=1 WHERE id=?").run(text, JSON.stringify(updated.sourceIds), updated.revision, id);
-      this.audit("memory_edited", updated);
+      this.db.prepare("UPDATE memories SET text=?,source_ids=?,revision=? WHERE id=?").run(text, JSON.stringify(updated.sourceIds), updated.revision, id);
+      this.audit("memory_edited", { ...updated, previous: prior });
       return updated;
     });
   }
